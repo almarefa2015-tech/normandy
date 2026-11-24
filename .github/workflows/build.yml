@@ -1,0 +1,49 @@
+name: Build Normandy APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export-android:
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          apt-get update -y && apt-get install -y unzip || true
+          unzip -o normandy_proj.zip -d src
+          ls -la src/proj
+
+      - name: Setup export templates and debug keystore
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/4.3.stable ~/.local/share/godot/export_templates/4.3.stable || true
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
+          mkdir -v -p ~/.config/godot
+          godot --headless -e --quit || true
+          SETTINGS=$(ls ~/.config/godot/editor_settings-4*.tres | head -1)
+          echo "export/android/android_sdk_path = \"$ANDROID_HOME\"" >> $SETTINGS
+          echo "export/android/debug_keystore = \"$GITHUB_WORKSPACE/debug.keystore\"" >> $SETTINGS
+          echo "export/android/debug_keystore_user = \"androiddebugkey\"" >> $SETTINGS
+          echo "export/android/debug_keystore_pass = \"android\"" >> $SETTINGS
+          echo "export/android/java_sdk_path = \"/usr/lib/jvm/java-17-openjdk-amd64\"" >> $SETTINGS
+
+      - name: Import project and export APK
+        working-directory: src/proj
+        run: |
+          mkdir -v -p build
+          godot --headless --import || true
+          godot --headless --export-debug "Android" build/normandy.apk
+
+      - name: Publish APK to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: normandy-${{ github.run_number }}
+          name: Normandy 1944 test build ${{ github.run_number }}
+          files: src/proj/build/normandy.apk
